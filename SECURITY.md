@@ -40,3 +40,9 @@ The standalone HTML embeds everything and applies a hash-based script/style cont
 - Physical gamepads, mobile hardware, other browsers, and all eight levels have not been exhaustively tested.
 
 The public source release excludes ROMs, game disassembly, extracted assets, generated ROM-containing HTML, screenshots, and the local compiler checkout. The game assets and rebuilt ROM remain local and have not been uploaded or publicly hosted. The assembly project does not include a license granting rights to Konami's game content; retaining public source availability does not establish a right to redistribute the bundled game.
+
+## Experimental network branch
+
+The original offline review above describes the local-play baseline. This branch deliberately adds network activity when a user creates or joins a room: same-origin room APIs, WebRTC connection metadata (including the default public STUN endpoint), and encrypted peer controller/checksum traffic. Browser ROM loading remains local. The signaling service rejects non-JSON and oversized bodies, checks known Host/Origin values, bounds room count and lifetime, limits creation, and separates host/guest capabilities. Invitations are secrets in the link fragment; request logging omits URLs and payloads. Room state exists only in process memory.
+
+The peer protocol checks ROM/protocol identity, binds each connection to its assigned controller slot, bounds message and send-buffer sizes, and compares game-state hashes. A state mismatch or disconnect ends the session. TURN credentials configured by an operator are necessarily delivered to clients and should be short-lived. No network service or game image has been publicly deployed. The included Python HTTP server needs an operator-provided HTTPS reverse proxy and appropriate production resource limits before internet use; it is not presented as a hardened public hosting service. Cross-network browser and relay verification remains outstanding.

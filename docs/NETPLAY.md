@@ -1,22 +1,30 @@
 # Network play expansion
 
-The published `main` baseline remains the original local one/two-player game. This branch begins the expansion. It does not yet expose playable network rooms or four simultaneous game characters.
+The published `main` baseline remains the original local one/two-player game. This development branch adds experimental two-player room signaling, WebRTC transport, and browser integration. It has not yet been verified across two real internet connections. Four simultaneous game characters remain a separate engine milestone.
 
-## First milestone: identical frame inputs
+## Implemented
 
-`web/netplay/frame-sync.mjs` schedules controller masks three frames ahead by default and waits until all player inputs for a frame are available. It accepts reordered/duplicate packets, rejects conflicting inputs and packets for other sessions, bounds the future-frame queue, and prevents a peer from claiming another assigned controller slot. The transport must supply that peer's trusted slot; the packet's slot is never an authority by itself. A stalled frame is held until its input arrives. The browser renderer must not advance the emulator independently of this coordinator in network mode.
+- `frame-sync.mjs` schedules controller masks four frames ahead in room mode (about 67 ms at 60 FPS), waits for all inputs, accepts reordered/duplicate input packets, bounds the queue, and rejects slot spoofing and conflicting input.
+- `game-session.mjs` owns simulation time, starts an actual two-player game deterministically, coordinates host-authorized pause/resume/reset at future frame boundaries, and compares full-state SHA-256 checksums every 120 frames. New-epoch messages arriving during a reset are buffered. Rendering/audio do not advance game time themselves.
+- `room.mjs` exchanges WebRTC offers/answers through same-origin HTTP signaling and establishes a reliable ordered encrypted data channel. The handshake checks game fingerprint, protocol/emulator identity, assigned role, and buffer delay. Both users click Ready before starting. It includes latency pings, bounded messages, congestion checks, and disconnect handling.
+- `scripts/rooms.py` and `serve.py` provide bounded, expiring, in-memory room metadata with independent host/guest credentials and single-claim invitations. The API limits body/SDP sizes and room creation, checks Host/Origin, and omits request/credential details from logs. It never accepts ROMs or game state. It is a reference/development server, not a production deployment platform.
+- The browser keeps local mode available. In network mode, each player's primary keyboard/gamepad controls only their assigned slot; the stock engine provides two independent characters. The standalone HTML remains local-only and hides room controls.
 
-The coordinator supports 2–4 input slots as protocol groundwork. The stock emulator/game supports two ports/characters; applying four slots currently fails explicitly. No extra character is claimed or simulated.
+## Tests
 
-Run `npm run test:netplay` without a ROM. For the actual emulator regression, pass your own ROM: `npm run test:netplay -- /path/to/Contra-US.nes`. This compares full state after identical scheduled inputs and exercises save/restore reproducibility. No ROM enters Git or the network.
+`npm run test:netplay` tests masks, duplication/reordering, stalls, sender binding, and invalid packets without a ROM. Passing a local ROM additionally checks actual emulator state equality. `npm run test:rooms` exercises room access, expiration, claim limits, HTTP validation/rate limits, client readiness, handshake mismatches, invalid controls, and message limits without sockets or game content.
 
-## Next: internet transport and browser integration
+`npm run test:session -- /path/to/Contra-US.nes` runs the actual two-player game with delayed packet delivery and unequal peer cadence, then verifies coordinated pause, guest-requested resume, a reset while peers are at different frames, matching post-reset checksums, and identical final emulator state. The original gameplay test remains available. No copyrighted content is included in any fixture.
 
-1. Add Create Room / Join Link with host-assigned slots and agreement on ROM fingerprint, emulator version, and session parameters.
-2. Establish encrypted WebRTC input channels using a signaling service, with configurable STUN and TURN relay support. A connection across arbitrary home/mobile networks must be tested; a successful local test alone is insufficient.
-3. Feed frame records into the existing game loop. Keep local mode available. Add latency/waiting indicators and coordinated start, pause, reset, and disconnect handling.
-4. Compare state checksums periodically and recover through an explicit host snapshot. Snapshot transfer must be bounded/chunked and occur while paused. The initial full JSON snapshot measured about 1.37 MB; transmitting it every frame would be inappropriate.
-5. Test delayed, duplicated, disconnected, and reordered inputs, then two real networks. Consider rollback only after correctness is established.
+Browser-to-browser tests and cross-network connectivity are tracked separately from these simulations. Successful deterministic simulation alone does not establish that a user's routers will support a direct WebRTC connection.
+
+## Remaining work and limits
+
+- Complete live browser-pair verification, then test two actual internet connections with both direct and TURN-relayed transport.
+- There is no public hosted signaling or TURN service. Internet operators must provide a reachable HTTPS origin, relay credentials, and appropriate production request/concurrency controls. No deployment has been made.
+- This is buffered lockstep; there is no rollback. Slow or background-throttled peers can stall both players. There is no seamless reconnect; create a new room after a disconnect or state mismatch.
+- Checksums detect state divergence and terminate the room. Automatic host-snapshot recovery is not implemented. The measured JSON state is about 1.37 MB, so recovery would require a bounded/chunked transfer while paused, not a per-frame full-state broadcast.
+- The coordinator can represent four input slots as groundwork. Applying four slots to the stock two-port engine fails explicitly; this is not four-player gameplay.
 
 ## Four-player engine milestone
 

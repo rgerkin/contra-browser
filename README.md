@@ -1,6 +1,6 @@
 # Contra browser player
 
-A local browser player and reproducible rebuild workflow for a **user-supplied Contra (US) NES ROM**. Includes keyboard, touch, and two local gamepad controller ports, audio, pause/resume, reset, and fullscreen. Internet multiplayer is not implemented in this initial version.
+A local browser player and reproducible rebuild workflow for a **user-supplied Contra (US) NES ROM**. Includes keyboard, touch, and two local gamepad controller ports, audio, pause/resume, reset, and fullscreen. This development branch adds experimental two-player WebRTC co-op. Four-player characters are not implemented yet; the original game engine supports two.
 
 **No ROM, game disassembly, graphics, audio, or ROM-containing HTML is distributed in this repository.** Our tooling/UI is MIT-licensed; the bundled [JSNES emulator](https://github.com/bfirsh/jsnes) retains its Apache 2.0 license. See [third-party notices](THIRD_PARTY_NOTICES.md).
 
@@ -45,6 +45,30 @@ Arrow keys move/aim, **Z** fires, **X** jumps, **Enter** starts or pauses in-gam
 
 The server binds only to loopback and serves `web/`. Stop with Ctrl+C. Keep that terminal running while playing. If port 8787 is busy, run `python3 scripts/serve.py --port 8788` and open http://127.0.0.1:8788 instead (use `py -3` on Windows).
 
+## Experimental online co-op
+
+1. Both players open the app at the **same server address** and load their own original US ROM.
+2. Player 1 clicks **Create room**, then **Copy invitation** and sends the link to player 2.
+3. Player 2 opens that link, loads their ROM, and clicks **Join invitation**.
+4. Once connected, both click **Ready**. The app starts a fresh two-player game at the first stage. Both people use arrows/Z/X (or their first connected gamepad) to control their assigned character.
+
+The room panel shows round-trip latency; below it, periodic matching game-state checksums confirm synchronization. Pause/resume and reset are scheduled at matching simulation frames. Leaving/disconnecting ends the network session and returns to local play. A checksum mismatch stops the session; create a new room to restart. Seamless reconnect and rollback are not implemented.
+
+For a same-computer check, open two browser windows at http://127.0.0.1:8787 and follow the steps above. Localhost invitation links only work on that computer. Keep the game windows visible for reliable timing; background throttling can stall buffered synchronization.
+
+**Internet play needs a reachable HTTPS server** running this branch, plus a TURN relay for reliable connectivity through restrictive networks. There is no hosted service provided by this repository. The included Python server is a development/reference server; an internet operator must supply TLS, appropriate reverse-proxy request/concurrency limits, and their own relay service. Use `--public-origin https://your-host.example` to allow your exact external origin. The default remains loopback-only.
+
+The default ICE configuration uses Google's public STUN endpoint (`stun:stun.l.google.com:19302`) when creating/joining a room. STUN exchanges connection metadata, not game content. To use your own STUN/TURN service, configure the server's `CONTRA_ICE_SERVERS` environment variable as a JSON array of WebRTC `RTCIceServer` objects. For example, replace these placeholders with your service's values:
+
+```sh
+CONTRA_ICE_SERVERS='[{"urls":"stun:relay.example:3478"},{"urls":"turns:relay.example:5349","username":"temporary-user","credential":"temporary-password"}]' \
+  python3 scripts/serve.py --port 8787 --public-origin https://your-host.example
+```
+
+Relay credentials are supplied to participating browsers; use limited-lifetime credentials and do not commit secrets. The reverse proxy must forward the `Host`, `Origin`, and `Authorization` headers and must not cache `/api/` responses. To avoid contacting a public STUN service for local testing, set `CONTRA_ICE_SERVERS='[]'` before starting the server. Connection setup times out after three minutes; invitations admit one guest and room records expire after 30 minutes without signaling activity.
+
+Game simulation and rendering run in each browser. The signaling server handles only temporary room credentials and connection descriptions; controller inputs and state checksums travel over the encrypted WebRTC channel. No ROM is sent to the server or the other player. See [the network implementation notes](docs/NETPLAY.md) for test coverage and remaining work.
+
 ## Optional: reassemble from separately obtained source
 
 Rebuilding is optional: **loading your own ROM in the player does not need any of the tools below**. The rebuild workflow additionally needs Git, a C compiler, GNU Make, and the two external source checkouts. On macOS, Apple's Command Line Tools provide a compiler and Make (`xcode-select --install`). On Debian/Ubuntu, the `build-essential` package provides the compiler and Make. For the documented rebuild commands on Windows, use WSL with Git, Python 3, and a C/Make toolchain; Windows-only builds have not been tested. See the [cc65 project's build information](https://github.com/cc65/cc65).
@@ -76,6 +100,9 @@ Builds are ignored under `web/game/`, `build/`, `output/`, and `vendor/`. The or
 python3 scripts/verify.py    # Bundled emulator source/bundle hashes; no game needed
 python3 scripts/verify.py --build  # Also verify optional external build sources
 node scripts/check-game.mjs # Requires Node.js and a locally rebuilt ROM
+npm run test:netplay        # Frame coordinator tests; no ROM needed
+npm run test:rooms          # Signaling API/client tests; no ROM needed
+npm run test:session -- /path/to/Contra-US.nes # Actual two-player game + lag/pause/reset
 ```
 
 `npm run verify` and `npm test` are equivalent shortcuts when npm is installed. If you only load a ROM through the browser, you can skip the rebuild and headless test.

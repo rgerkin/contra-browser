@@ -8,7 +8,9 @@
     "verify": "python3 scripts/verify.py",
     "package": "python3 scripts/verify.py && python3 scripts/package.py",
     "test": "node scripts/check-game.mjs",
-    "test:netplay": "node scripts/check-netplay.mjs"
+    "test:netplay": "node scripts/check-netplay.mjs",
+    "test:rooms": "python3 scripts/check-rooms.py && node scripts/check-room-client.mjs",
+    "test:session": "node scripts/check-game-session.mjs"
   },
   "license": "MIT",
   "description": "Local browser player and reproducible build tooling for a user-supplied Contra US NES ROM"

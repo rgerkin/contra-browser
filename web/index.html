@@ -13,6 +13,13 @@
   <main>
     <header><a class="wordmark" href="/">C<span>↗</span> FIELD CONSOLE</a><span class="edition">NES / 1988 <i>•</i> US EDITION</span></header>
     <section class="intro"><div><p class="eyebrow">OPERATION 01 / REASSEMBLED</p><h1>CONTRA<span>®</span></h1><p class="subtitle">Two commandos. Eight stages. One mission.</p></div><div class="stamp">LOCAL PLAY<br><strong>NO QUARTERS<br>REQUIRED.</strong></div></section>
+    <section class="net-panel" aria-label="Online co-op">
+      <div><p class="eyebrow">ONLINE CO-OP / TWO PLAYERS</p><p id="net-status" role="status">Load your ROM, then create a room or open an invitation.</p></div>
+      <div class="net-buttons"><button id="host-room" disabled>Create room</button><button id="ready-room" disabled>Ready</button><button id="leave-room" disabled>Leave room</button></div>
+      <label class="invite-label">Invitation link<input id="invite" type="text" placeholder="Paste your partner’s invitation link" autocomplete="off" spellcheck="false"></label>
+      <div class="net-buttons"><button id="join-room" disabled>Join invitation</button><button id="copy-invite" disabled>Copy invitation</button><span id="net-detail">Each player supplies their own ROM.</span></div>
+      <p class="net-help">The room link must use the same reachable server. For internet play, host this app at an HTTPS address and configure a TURN relay if direct connections fail. Localhost links work only on this computer.</p>
+    </section>
     <section class="console" aria-label="Game console">
       <div class="console-bar"><span><b class="led" id="led"></b><span id="state">STANDBY</span></span><span id="fps">256 × 240 / NTSC</span></div>
       <div id="screen" tabindex="0" aria-label="Contra game screen. Arrow keys move, Z fires, X jumps, Enter starts.">
