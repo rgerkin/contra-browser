@@ -1,0 +1,19 @@
+# Private game inputs, upstream reconstruction, and local toolchain.
+/vendor/
+*.nes
+*.nes.*
+*.rom
+*.bin
+/Contra.html
+/web/game/
+/build/
+/output/
+# Local tool and editor state.
+.DS_Store
+__pycache__/
+.playwright-cli/
+node_modules/
+.env
+.env.*
+*.pem
+*.key
