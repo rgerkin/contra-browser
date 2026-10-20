@@ -1,11 +1,12 @@
 // MIT License — Copyright (c) 2026 Rick Gerkin.
+import {FourPlayer} from '../gameplay/four-player.mjs';
 import {FrameSync, applyInputs} from './frame-sync.mjs';
 import {prepareTwoPlayerGame, stateHash} from './game.mjs';
 
 // Owns simulation time; rendering, audio output, and transport live outside it.
 export class GameSession {
-  constructor({nes,rom,room,player,send,onState=()=>{},onVerified=()=>{},onFatal=()=>{}}) {
-    Object.assign(this,{nes,rom,room,player,send,onState,onVerified,onFatal});
+  constructor({nes,rom,room,player,players=2,send,onState=()=>{},onVerified=()=>{},onFatal=()=>{}}) {
+    Object.assign(this,{nes,rom,room,player,players,send,onState,onVerified,onFatal});
     this.epoch=0;this.generation=0;this.closed=false;this.deferred=[];
   }
   start() {this.initialize();}
@@ -15,8 +16,9 @@ export class GameSession {
     this.generation++;this.paused=false;this.commands=[];this.lastScheduled=-1;
     this.localHashes=new Map();this.remoteHashes=new Map();
     prepareTwoPlayerGame(this.nes,this.rom);
-    this.sync=new FrameSync({session:`${this.room}:${this.epoch}`,localPlayer:this.player,delay:4});
-    for(const entry of deferred){if(entry.type==='input')this.input(entry.packet,entry.player);else this.hash(entry.packet);}
+    if(this.players>2)new FourPlayer(this.nes,this.players);
+    this.sync=new FrameSync({session:`${this.room}:${this.epoch}`,localPlayer:this.player,players:this.players,delay:4});
+    for(const entry of deferred){if(entry.type==='input')this.input(entry.packet,entry.player);else this.hash(entry.packet,entry.player);}
     this.onState('running');this.capture();
   }
   close(){this.closed=true;this.generation++;}
@@ -30,19 +32,22 @@ export class GameSession {
     if(packet.session===`${this.room}:${this.epoch}`)this.sync.receive(packet,player);
     else if(packet.session===`${this.room}:${this.epoch+1}` && this.commands.some(c=>c.action==='reset'))this.defer({type:'input',packet,player});
   }
-  hash(packet) {
+  hash(packet,player=3-this.player) {
     if(this.closed)return;
     if(packet.epoch!==this.epoch) {
-      if(packet.epoch===this.epoch+1 && this.commands.some(c=>c.action==='reset'))this.defer({type:'hash',packet});
+      if(packet.epoch===this.epoch+1 && this.commands.some(c=>c.action==='reset'))this.defer({type:'hash',packet,player});
       return;
     }
     if(this.remoteHashes.size>=16)throw new Error('Too many unverified state checksums');
-    this.remoteHashes.set(packet.frame,packet.hash);this.compare(packet.frame);
+    if(!Number.isInteger(player)||player<1||player>this.players||player===this.player)throw new Error('Invalid checksum sender');
+    const hashes=this.remoteHashes.get(packet.frame) ?? new Map();
+    hashes.set(player,packet.hash);this.remoteHashes.set(packet.frame,hashes);this.compare(packet.frame);
   }
   compare(frame) {
     const ours=this.localHashes.get(frame),theirs=this.remoteHashes.get(frame);
     if(ours && theirs) {
-      if(ours!==theirs){this.fail('Game states diverged. Create a new room to restart in sync.');return;}
+      if([...theirs.values()].some(hash=>hash!==ours)){this.fail('Game states diverged. Create a new room to restart in sync.');return;}
+      if(theirs.size!==this.players-1)return;
       this.onVerified({frame,hash:ours,epoch:this.epoch});
       this.localHashes.delete(frame);this.remoteHashes.delete(frame);
     }

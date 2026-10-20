@@ -1,6 +1,5 @@
 // MIT License — Copyright (c) 2026 Rick Gerkin.
-// Transport-independent lockstep. This supports four input slots; the stock
-// Contra game still has only two player characters.
+// Transport-independent lockstep for the original engine and squad extension.
 const VERSION = 1;
 
 function integer(value, min, max, label) {
@@ -82,11 +81,13 @@ export class FrameSync {
 }
 
 export function applyInputs(nes, inputs) {
-  for (let player = 1; player <= inputs.length; player++) {
+  if(nes.fourPlayer)nes.fourPlayer.setInputs(inputs);
+  const ports=nes.fourPlayer?2:inputs.length;
+  for (let player = 1; player <= ports; player++) {
     if (!nes.controllers[player]) throw new Error(`Game engine has no controller port for player ${player}`);
     integer(inputs[player - 1], 0, 255, 'controller mask');
   }
-  for (let player = 1; player <= inputs.length; player++) {
+  for (let player = 1; player <= ports; player++) {
     for (let button = 0; button < 8; button++) {
       nes[inputs[player - 1] & (1 << button) ? 'buttonDown' : 'buttonUp'](player, button);
     }

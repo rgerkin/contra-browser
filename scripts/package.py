@@ -17,10 +17,12 @@ def main():
     core = (ROOT / 'web/vendor/jsnes/dist/jsnes.min.js').read_text()
     app = (ROOT / 'web/app.js').read_text().replace("import NES from './vendor/jsnes/src/nes.js';", 'const NES = jsnes.NES;')
     modules = []
-    for name in ['frame-sync', 'relay', 'room', 'game', 'game-session']:
+    for name in ['digest', 'frame-sync', 'relay', 'room', 'party-room', 'game', 'game-session']:
         source = (ROOT / f'web/netplay/{name}.mjs').read_text()
         source = '\n'.join(line for line in source.splitlines() if not line.startswith('import '))
         modules.append(source.replace('export async function ', 'async function ').replace('export function ', 'function ').replace('export class ', 'class '))
+    extension=(ROOT / 'web/gameplay/four-player.mjs').read_text().replace('export class ', 'class ')
+    modules.insert(0,extension)
     app = '\n'.join(line for line in app.splitlines() if not line.startswith('import '))
     app = '\n'.join(modules) + '\n' + app
     # Offline packages contain the local player; room signaling needs a server.

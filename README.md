@@ -1,6 +1,6 @@
 # Contra browser player
 
-A local browser player and reproducible rebuild workflow for a **user-supplied Contra (US) NES ROM**. Includes keyboard, touch, and two local gamepad controller ports, audio, pause/resume, reset, and fullscreen. This development branch adds experimental two-player online co-op with WebRTC and a same-server relay fallback. Four-player characters are not implemented yet; the original game engine supports two.
+A browser player for a **user-supplied Contra (US) NES ROM**, with keyboard, touch, gamepads, sound, and experimental network co-op. This development branch includes an original three-/four-player emulator extension: extra green and gold characters have independent movement, jumping, weapons, and lives in the same level and enemy world. Original one-/two-player mode remains available.
 
 **No ROM, game disassembly, graphics, audio, or ROM-containing HTML is distributed in this repository.** Our tooling/UI is MIT-licensed; the bundled [JSNES emulator](https://github.com/bfirsh/jsnes) retains its Apache 2.0 license. See [third-party notices](THIRD_PARTY_NOTICES.md).
 
@@ -45,12 +45,37 @@ Arrow keys move/aim, **Z** fires, **X** jumps, **Enter** starts or pauses in-gam
 
 The server binds only to loopback and serves `web/`. Stop with Ctrl+C. Keep that terminal running while playing. If port 8787 is busy, run `python3 scripts/serve.py --port 8788` and open http://127.0.0.1:8788 instead (use `py -3` on Windows).
 
+## Three- and four-player squads
+
+Choose **3-player squad** or **4-player squad** in the Players selector, then Play. Squad mode starts directly at stage 1. Blue/red are players 1/2; green/gold are players 3/4. A separate status strip shows each character’s lives and weapon. **Reset** starts a fresh squad. The original cartridge mode still uses its title menu.
+
+| Local character | Move / aim | Fire | Jump |
+| --- | --- | --- | --- |
+| P1 · blue | Arrow keys | Z | X |
+| P2 · red | WASD | G | H |
+| P3 · green | IJKL | N | M |
+| P4 · gold | Numpad 8/4/5/6 | Numpad 0 | Numpad decimal |
+
+Up to four standard gamepads can also control a local squad. Online, each browser controls **one assigned character** with arrows/Z/X or its first gamepad. A four-player network room requires four clients; two browsers can each open two tabs for a test, though background-tab throttling may cause stalls. The room starts when every participant joins and clicks Ready. Three-/four-player rooms use the server relay.
+
+**Experimental limits:** this is an emulator extension, not a patched four-controller NES cartridge. It invokes movement and collision routines from your verified ROM with extra player contexts, then renders their cartridge-derived sprites with green/gold clothing. The ROM remains unchanged and is never uploaded. The extra characters share the original bullet pool; heavy simultaneous fire can limit shots. Some score attribution, enemy targeting, life-transfer, and stage-transition decisions retain the cartridge’s two-player assumptions. The original HUD still has two medal/score areas; use the added status strip for extra lives. All eight stages and continues have not been validated. Use browser Reset to restart a squad after game over.
+
+## Test on your subnet
+
+Restart the server after updating this branch. Find the server computer’s private IPv4 address in its network settings, then run, replacing this example with that actual address:
+
+```sh
+python3 scripts/serve.py --port 8788 --lan-address 192.168.1.20
+```
+
+This binds only to that interface and allows that exact address in the room API. On **both devices**, open `http://192.168.1.20:8788` and load a ROM independently. Select **Server relay** for a two-player test; squads always use the relay. Create the room from that address so the invitation contains the LAN IP. Allow Python on your private network if the OS firewall asks. The other device needs only a browser and its own ROM, not Python or Node.js. LAN/public hosting blocks the private `web/game/` rebuild outputs; each device must choose its own ROM file, even if the server has a local rebuild. No port forwarding is needed within the subnet. HTTP LAN mode has a local hash implementation and an audio fallback, so browser security flags and certificate installation are unnecessary. Use this mode on a trusted private network; HTTP does not encrypt room traffic. Use HTTPS for internet hosting.
+
 ## Experimental online co-op
 
-1. Both players open the app at the **same server address** and load their own original US ROM.
-2. Player 1 clicks **Create room**, then **Copy invitation** and sends the link to player 2.
-3. Player 2 opens that link, loads their ROM, and clicks **Join invitation**.
-4. Once connected, both click **Ready**. The app starts a fresh two-player game at the first stage. Both people use arrows/Z/X (or their first connected gamepad) to control their assigned character.
+1. All players open the app at the **same server address** and load their own original US ROM.
+2. Player 1 clicks **Create room**, then **Copy invitation** and sends the link to the other participants.
+3. Each invited player opens that link, loads their ROM, and clicks **Join invitation**.
+4. Once everyone connects, all click **Ready**. The app starts a fresh game at stage 1 with the selected player count. Everyone uses arrows/Z/X (or their first connected gamepad) for their assigned character.
 
 The room panel shows round-trip latency and the selected transport; below it, periodic matching game-state checksums confirm synchronization. Pause/resume and reset are scheduled at matching simulation frames. Leaving/disconnecting ends the network session and returns to local play. A checksum mismatch stops the session; create a new room to restart. Seamless reconnect and rollback are not implemented.
 
@@ -65,7 +90,7 @@ CONTRA_ICE_SERVERS='[{"urls":"stun:relay.example:3478"},{"urls":"turns:relay.exa
   python3 scripts/serve.py --port 8787 --public-origin https://your-host.example
 ```
 
-Relay credentials are supplied to participating browsers; use limited-lifetime credentials and do not commit secrets. The reverse proxy must forward the `Host`, `Origin`, and `Authorization` headers and must not cache `/api/` responses. Disable response buffering for `/api/rooms/*/events`, which streams relay messages. The reference server uses HTTP/1.1, persistent POST connections, and a chunked receive stream; it is intended for small trusted tests, not unrestricted public traffic. To avoid contacting a public STUN service for local testing, set `CONTRA_ICE_SERVERS='[]'` before starting the server. Connection setup times out after three minutes; invitations admit one guest and room records expire after 30 minutes without signaling activity.
+Relay credentials are supplied to participating browsers; use limited-lifetime credentials and do not commit secrets. The reverse proxy must forward the `Host`, `Origin`, and `Authorization` headers and must not cache `/api/` responses. Disable response buffering for `/api/rooms/*/events`, which streams relay messages. The reference server uses HTTP/1.1, persistent POST connections, and a chunked receive stream; it is intended for small trusted tests, not unrestricted public traffic. To avoid contacting a public STUN service for local testing, set `CONTRA_ICE_SERVERS='[]'` before starting the server. Connection setup times out after three minutes; invitations admit the selected number of guests and room records expire after 30 minutes without signaling activity.
 
 Game simulation and rendering run in each browser. The server handles temporary room credentials and connection descriptions. In direct mode, controller inputs and state checksums travel over the encrypted WebRTC channel; in server-relay mode, the same small messages pass through the app server over HTTPS. The server operator can see relayed inputs/checksums, so use a server you trust. No ROM is sent to the server or the other player. Both direct WebRTC and same-server relay were verified between two local Chrome tabs at about 60 FPS, with matching state checksums and coordinated pause/reset. Two separate internet connections have not yet been tested. See [the network implementation notes](docs/NETPLAY.md) for test coverage and remaining work.
 
@@ -103,10 +128,11 @@ node scripts/check-game.mjs # Requires Node.js and a locally rebuilt ROM
 npm run test:netplay        # Frame coordinator tests; no ROM needed
 npm run test:rooms          # Signaling API/client tests; no ROM needed
 npm run test:session -- /path/to/Contra-US.nes # Actual two-player game + lag/pause/reset
+npm run test:four-player -- /path/to/Contra-US.nes # Extra characters + four-peer lag/pause/reset
 ```
 
 `npm run verify` and `npm test` are equivalent shortcuts when npm is installed. If you only load a ROM through the browser, you can skip the rebuild and headless test.
 
 The headless check exercised 1,069 frames of actual player mode, movement, shooting, jumping, video, and audio. Chrome gameplay ran at approximately 60 FPS; pause/resume, reset, and mute were checked. All eight stages, mobile hardware, and physical gamepads have not been exhaustively tested. See [SECURITY.md](SECURITY.md) for review scope and limitations.
 
-The game runs as emulated 6502 instructions using its original two-player engine. Browser optimizations include reused pixel memory, native-resolution rendering, transferable audio batches, a bounded AudioWorklet buffer, limited frame catch-up, and pause on focus loss.
+The original mode runs as emulated 6502 instructions. Squad mode adds independent player contexts around cartridge routines without distributing game instructions or assets. Browser optimizations include reused pixel memory, native-resolution rendering, transferable audio batches, a bounded AudioWorklet buffer, limited frame catch-up, and pause on focus loss.

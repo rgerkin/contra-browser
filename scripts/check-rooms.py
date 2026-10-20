@@ -5,7 +5,17 @@ from types import SimpleNamespace
 import threading
 import unittest
 from rooms import Rooms, RoomError
-from serve import Handler
+from serve import Handler, WEB
+
+class PrivateAssetTests(unittest.TestCase):
+    def test_network_hosts_cannot_fetch_private_builds_or_encoded_variants(self):
+        class DenyHandler(Handler):
+            def send_error(self,code,*args):self.code=code
+        for method in ('do_GET','do_HEAD'):
+            for path in ('/game/contra.nes','/game/manifest.json','/%67ame/contra.nes','/x/../game/contra.nes'):
+                h=object.__new__(DenyHandler);h.path=path;h.directory=str(WEB)
+                h.server=SimpleNamespace(share_game=False)
+                getattr(h,method)();self.assertIn(h.code,(403,404))
 
 class StoreTests(unittest.TestCase):
     def setUp(self):
@@ -44,6 +54,37 @@ class StoreTests(unittest.TestCase):
     def test_bad_invitation_and_large_sdp(self):
         with self.assertRaises(RoomError):self.store.join(self.host['room'],'wrong')
         with self.assertRaises(RoomError):self.store.access(self.host['room'],self.host['token'],{'type':'offer','sdp':'x'*60001})
+
+class PartyTests(unittest.TestCase):
+    def test_two_player_hello_is_queued_before_guest_claim(self):
+        store=Rooms();host=store.create();store.enable_relay(host['room'],host['token'])
+        store.send(host['room'],host['token'],['hello'])
+        guest=store.join(host['room'],host['invite'])
+        self.assertEqual(store.read(host['room'],guest['token'],timeout=0),[{'from':1,'data':'hello'}])
+
+    def test_four_authenticated_slots_broadcast_once_without_echo(self):
+        store=Rooms();host=store.create(4)
+        peers=[host]+[store.join(host['room'],host['invite']) for _ in range(3)]
+        self.assertEqual([p['player'] for p in peers],[1,2,3,4])
+        with self.assertRaises(RoomError):store.join(host['room'],host['invite'])
+        for peer in peers:store.send(host['room'],peer['token'],[str(peer['player'])])
+        for peer in peers:
+            events=store.read(host['room'],peer['token'],timeout=0)
+            self.assertEqual({e['from'] for e in events},set(range(1,5))-{peer['player']})
+            self.assertEqual(len(events),3)
+        state=store.access(host['room'],peers[3]['token'])
+        self.assertEqual(state['roster'],[1,2,3,4]);self.assertTrue(state['relay'])
+        self.assertNotIn('tokens',state)
+    def test_bad_party_sizes_and_atomic_backpressure(self):
+        store=Rooms()
+        for size in [True,0,1,5,'4',None]:
+            with self.assertRaises(RoomError):store.create(size)
+        host=store.create(3);p2=store.join(host['room'],host['invite']);p3=store.join(host['room'],host['invite'])
+        for _ in range(16):store.send(host['room'],host['token'],['a']*16)
+        store.read(host['room'],p2['token'],timeout=0)
+        with self.assertRaises(RoomError):store.send(host['room'],host['token'],['rejected'])
+        events=store.read(host['room'],p2['token'],timeout=0)
+        self.assertTrue(all(e['data']!='rejected' for e in events))
 
 class RelayTests(unittest.TestCase):
     def setUp(self):

@@ -1,7 +1,9 @@
+import {digestHex} from './digest.mjs';
 // MIT License — Copyright (c) 2026 Rick Gerkin.
 // Deterministic two-player boot using only controller input and RAM state
 // observations. No copyrighted game instructions or assets are embedded here.
 export function prepareTwoPlayerGame(nes, rom) {
+  nes.fourPlayer?.dispose();
   nes.loadROM(rom);
   for(let p=1;p<=2;p++)for(let b=0;b<8;b++)nes.buttonUp(p,b);
   const step=count=>{for(let i=0;i<count;i++)nes.frame();};
@@ -20,6 +22,5 @@ export function prepareTwoPlayerGame(nes, rom) {
 
 export async function stateHash(nes) {
   const bytes=new TextEncoder().encode(JSON.stringify(nes.toJSON()));
-  const digest=await crypto.subtle.digest('SHA-256',bytes);
-  return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
+  return digestHex('SHA-256',bytes);
 }

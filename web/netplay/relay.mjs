@@ -2,8 +2,8 @@
 // Same-origin, authenticated streaming HTTP fallback; uses TLS when hosted on
 // HTTPS. It carries only the bounded room protocol, not the ROM or snapshots.
 export class RelayChannel {
-  constructor({room,player,request,token,signal,onError}) {
-    Object.assign(this,{room,player,request,token,signal,onError});
+  constructor({room,player,players=2,request,token,signal,onError}) {
+    Object.assign(this,{room,player,players,request,token,signal,onError});
     this.readyState='connecting';this.pending=[];this.sending=false;this.bytes=0;
   }
   get bufferedAmount(){return this.bytes;}
@@ -44,8 +44,8 @@ export class RelayChannel {
         const messages=JSON.parse(line);
         if(!Array.isArray(messages) || messages.length>32)throw new Error('Invalid relay batch');
         for(const message of messages) {
-          if(message.from!==3-this.player || typeof message.data!=='string' || message.data.length>4096)throw new Error('Invalid relay sender/message');
-          this.onmessage?.({data:message.data});
+          if(!Number.isInteger(message.from) || message.from<1 || message.from>this.players || message.from===this.player || typeof message.data!=='string' || message.data.length>4096)throw new Error('Invalid relay sender/message');
+          this.onmessage?.({data:message.data,from:message.from});
         }
       }
       if(buffer.length>262144)throw new Error('Relay frame is too large');

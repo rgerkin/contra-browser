@@ -1,3 +1,7 @@
+import {FourPlayer} from './gameplay/four-player.mjs';
+import {prepareTwoPlayerGame} from './netplay/game.mjs';
+import {digestHex} from './netplay/digest.mjs';
+import {PartyRoom} from './netplay/party-room.mjs';
 import NES from './vendor/jsnes/src/nes.js';
 import {Room} from './netplay/room.mjs';
 import {GameSession} from './netplay/game-session.mjs';
@@ -12,6 +16,8 @@ const keys = new Map([
   ['KeyX',[1,0]],['KeyZ',[1,1]],['ShiftRight',[1,2]],['ShiftLeft',[1,2]],['Enter',[1,3]],
   ['ArrowUp',[1,4]],['ArrowDown',[1,5]],['ArrowLeft',[1,6]],['ArrowRight',[1,7]],
   ['KeyH',[2,0]],['KeyG',[2,1]],['KeyR',[2,2]],['KeyT',[2,3]],
+  ['KeyM',[3,0]],['KeyN',[3,1]],['KeyI',[3,4]],['KeyK',[3,5]],['KeyJ',[3,6]],['KeyL',[3,7]],
+  ['NumpadDecimal',[4,0]],['Numpad0',[4,1]],['Numpad8',[4,4]],['Numpad5',[4,5]],['Numpad4',[4,6]],['Numpad6',[4,7]],
   ['KeyW',[2,4]],['KeyS',[2,5]],['KeyA',[2,6]],['KeyD',[2,7]],
 ]);
 let rom = null, running = false, starting = false, muted = false;
@@ -38,10 +44,11 @@ function input(source, player, button, down) {
   const held = inputs.get(id);
   down ? held.add(source) : held.delete(source);
   if (down && running) taps.add(id);
-  if (rom && !room) nes[(held.size || taps.has(id)) && running ? 'buttonDown' : 'buttonUp'](player,button);
+  if (rom && !room && nes.controllers[player]) nes[(held.size || taps.has(id)) && running ? 'buttonDown' : 'buttonUp'](player,button);
 }
 function release() {
   inputs.clear(); taps.clear();
+  if(nes.fourPlayer)nes.fourPlayer.setInputs(Array(nes.fourPlayer.count).fill(0));
   if(!room)for(let p=1;p<=2;p++) for(let b=0;b<8;b++) nes.buttonUp(p,b);
 }
 function clearAudio() { sampleCount = 0; node?.port.postMessage('clear'); }
@@ -62,8 +69,16 @@ async function ensureAudio() {
     audio = new AudioContext({sampleRate:48000,latencyHint:'interactive'});
     const embedded = $('audio-source');
     const url = embedded ? URL.createObjectURL(new Blob([embedded.textContent], {type:'application/javascript'})) : './audio-worklet.js';
-    try { await audio.audioWorklet.addModule(url); } finally { if (embedded) URL.revokeObjectURL(url); }
-    node = new AudioWorkletNode(audio,'contra-audio',{outputChannelCount:[2]});
+    if(audio.audioWorklet) {
+      try { await audio.audioWorklet.addModule(url); } finally { if (embedded) URL.revokeObjectURL(url); }
+      node = new AudioWorkletNode(audio,'contra-audio',{outputChannelCount:[2]});
+    } else {
+      if(embedded)URL.revokeObjectURL(url);
+      node=audio.createScriptProcessor(1024,0,2);
+      const left=new Float32Array(8192),right=new Float32Array(8192);let read=0,write=0;
+      node.port={postMessage:data=>{if(data==='clear'){read=write=0;return;}for(let i=0;i<data[0].length;i++){left[write%8192]=data[0][i];right[write%8192]=data[1][i];write++;if(write-read>8192)read=write-8192;}}};
+      node.onaudioprocess=event=>{const l=event.outputBuffer.getChannelData(0),r=event.outputBuffer.getChannelData(1);for(let i=0;i<l.length;i++){const have=read<write;l[i]=have?left[read%8192]:0;r[i]=have?right[read%8192]:0;if(have)read++;}};
+    }
     gain = audio.createGain(); gain.gain.value=muted?0:0.65;
     node.connect(gain).connect(audio.destination);
   }
@@ -86,8 +101,8 @@ async function play() {
 }
 function gamepads() {
   const pads = navigator.getGamepads?.() || [];
-  const connected = Array.from(pads).filter(p=>p?.mapping==='standard').slice(0,2);
-  for(let p=1;p<=(room?1:2);p++) {
+  const connected = Array.from(pads).filter(p=>p?.mapping==='standard').slice(0,Number($('player-count').value));
+  for(let p=1;p<=(room?1:Number($('player-count').value));p++) {
     const pad=connected[p-1];
     const pressed = i=>!!pad?.buttons[i]?.pressed;
     const state=[pressed(0),pressed(1)||pressed(2),pressed(8),pressed(9),
@@ -110,21 +125,24 @@ function tick(now, fromTimer=false) {
         for(let b=0;b<8;b++){const id=`${room.player}:${b}`;if(inputs.get(id)?.size||taps.has(id))mask|=1<<b;}
         const result=netgame.step(mask);
         if(result.scheduled)taps.clear();
-        if(!result.advanced){accumulator=Math.min(accumulator,interval);if(result.state==='waiting')showState('WAITING FOR PARTNER');clearAudio();break;}
+        if(!result.advanced){accumulator=Math.min(accumulator,interval);if(result.state==='waiting')showState('WAITING FOR SQUAD');clearAudio();break;}
         showState(`CO-OP / PLAYER ${room.player}`);
-      } else nes.frame();
+      } else {
+        if(nes.fourPlayer)nes.fourPlayer.setInputs(Array.from({length:nes.fourPlayer.count},(_,p)=>{let mask=0;for(let b=0;b<8;b++)if(inputs.get(`${p+1}:${b}`)?.size||taps.has(`${p+1}:${b}`))mask|=1<<b;return mask;}));
+        nes.frame();
+      }
       frames++;accumulator-=interval;
       if(!room)taps.clear();
       if(!room)for (const [id, held] of inputs) {
         const [p,b]=id.split(':').map(Number);
-        nes[held.size ? 'buttonDown' : 'buttonUp'](p,b);
+        if(nes.controllers[p])nes[held.size ? 'buttonDown' : 'buttonUp'](p,b);
       }
       if(sampleCount) {
         const l=sampleL.slice(0,sampleCount),r=sampleR.slice(0,sampleCount);
         node.port.postMessage([l,r],[l.buffer,r.buffer]); sampleCount=0;
       }
     }
-    ctx.putImageData(image,0,0);
+    ctx.putImageData(image,0,0);updateSquad();
   } catch(err) { if(room){room.fail(err);return;}pause(); $('message').textContent=`Emulation stopped: ${err.message}`; return; }
   if(now-fpsTime>=1000) {
     $('fps').textContent=`${Math.round(frames*1000/(now-fpsTime))} FPS / NTSC`;
@@ -136,12 +154,12 @@ async function load(buffer, rebuilt=false) {
   const bytes=new Uint8Array(buffer);
   if(bytes.length!==131088 || ![0x4e,0x45,0x53,0x1a,8,0,0x21,0,0,0,0,0,0,0,0,0].every((v,i)=>bytes[i]===v))
     throw new Error('Choose the original 131,088-byte Contra (US) iNES ROM.');
-  const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-512',buffer)),b=>b.toString(16).padStart(2,'0')).join('');
+  const hash=await digestHex('SHA-512',bytes);
   if(hash!==EXPECTED) throw new Error('ROM hash mismatch. This cartridge is not the expected original Contra (US).');
   if(running) pause();
   if(room)throw new Error('Leave the room before changing cartridges.');
   rom=Array.from(bytes,b=>String.fromCharCode(b)).join('');
-  nes.loadROM(rom); release(); clearAudio();
+  resetLocalGame(); release(); clearAudio();
   $('play').disabled=false; $('pause').disabled=false; $('reset').disabled=false;
   $('play').textContent='PLAY CONTRA ↗'; $('overlay-title').innerText='Your next mission\nstarts here.';
   $('message').textContent=rebuilt?'Reassembled from source. Byte-for-byte verified. Press Play, then Enter to start.':'Original US cartridge verified. Press Play, then Enter to start.';
@@ -155,7 +173,7 @@ $('reset').addEventListener('click',()=>{
   if(!rom) return;
   const wasRunning=running;
   if(wasRunning) pause();
-  nes.loadROM(rom); release(); clearAudio();
+  resetLocalGame(); release(); clearAudio();
   if(wasRunning) play();
   else { $('overlay-title').textContent='Fresh start.'; $('message').textContent='Cartridge reset. Resume to begin again.'; }
 });
@@ -191,22 +209,41 @@ $('rom').addEventListener('change',async e=>{
   e.target.value='';
 });
 
+
+function resetLocalGame() {
+  nes.fourPlayer?.dispose();
+  const count=Number($('player-count').value);
+  if(count>2){prepareTwoPlayerGame(nes,rom);new FourPlayer(nes,count);}
+  else nes.loadROM(rom);
+  updateSquad();
+}
+function updateSquad() {
+  $('squad').hidden=!nes.fourPlayer;
+  if(!nes.fourPlayer)return;
+  const m=nes.cpu.mem,status=[{player:1,lives:m[0x32],gameOver:m[0x38],weapon:m[0xaa]},{player:2,lives:m[0x33],gameOver:m[0x39],weapon:m[0xab]},...nes.fourPlayer.status];
+  for(let i=1;i<=4;i++) {
+    const p=status.find(p=>p.player===i),element=$(`player-status-${i}`);element.hidden=!p;
+    if(p)element.textContent=`P${i} · ${p.gameOver?'OUT':`${p.lives+1} lives · ${['Rifle','Machine gun','Flame','Spread','Laser'][p.weapon&7]||'Rifle'}`}`;
+  }
+}
+$('player-count').addEventListener('change',()=>{if(!rom||room)return;if(running)stopLocal();resetLocalGame();$('message').textContent=Number($('player-count').value)>2?'Squad ready at stage 1. Resume to start.':'Original cartridge reset. Press Play, then Enter.';});
+
 function updateRoomButtons() {
   $('host-room').disabled=!rom || !!room;
   $('join-room').disabled=!rom || !!room;
   $('leave-room').disabled=!room;
   $('ready-room').disabled=!room?.connected || room.ready;
-  $('rom').disabled=!!room;$('net-transport').disabled=!!room;
+  $('rom').disabled=!!room;$('net-transport').disabled=!!room;$('player-count').disabled=!!room;
   if(room && !room.started){$('play').disabled=true;$('pause').disabled=true;$('reset').disabled=true;}
 }
 function initializeNetwork() {
   running=false;release();clearAudio();
   const session=room;
-  netgame=new GameSession({nes,rom,room:room.id,player:room.player,send:packet=>session.send(packet),
+  netgame=new GameSession({nes,rom,room:room.id,player:room.player,players:room.players||2,send:packet=>session.send(packet),
     onState:state=>{
       clearAudio();release();const paused=state==='paused';
       $('pause').textContent=paused?'Resume':'Pause';$('overlay').hidden=!paused;
-      if(paused){$('overlay-title').textContent='Co-op paused.';$('message').textContent='Both players pause at the same frame.';$('play').textContent='RESUME CO-OP ↗';showState('CO-OP PAUSED');}
+      if(paused){$('overlay-title').textContent='Co-op paused.';$('message').textContent='All players pause at the same frame.';$('play').textContent='RESUME CO-OP ↗';showState('CO-OP PAUSED');}
     },
     onVerified:({frame,hash})=>{
       $('net-detail').textContent=`Frame ${frame} synchronized • checksums match`;
@@ -217,7 +254,7 @@ function initializeNetwork() {
   netgame.start();
   running=true;previous=0;accumulator=0;frames=0;fpsTime=0;
   $('overlay').hidden=true;$('pause').disabled=false;$('reset').disabled=false;$('play').disabled=false;
-  $('pause').textContent='Pause';$('net-status').textContent=`Two-player mission active. You are player ${room.player}.`;
+  $('pause').textContent='Pause';$('net-status').textContent=`${room.players||2}-player mission active. You are player ${room.player}.`;
   $('screen').focus({preventScroll:true});
 }
 function requestCommand(action){try{netgame?.request(action);}catch(error){room?.fail(error);}}
@@ -225,7 +262,7 @@ function endRoom(message='Left room. Local play is available.') {
   const previousRoom=room;room=null;previousRoom?.close();netgame?.close();netgame=null;
   clearInterval(networkTimer);networkTimer=null;
   running=false;cancelAnimationFrame(raf);release();clearAudio();
-  if(rom)nes.loadROM(rom);
+  if(rom)resetLocalGame();
   $('overlay').hidden=false;$('overlay-title').textContent='Ready for your next mission.';
   $('message').textContent=message;$('net-status').textContent=message;$('play').textContent='PLAY CONTRA ↗';
   $('play').disabled=!rom;$('pause').disabled=!rom;$('reset').disabled=!rom;
@@ -234,16 +271,20 @@ function endRoom(message='Left room. Local play is available.') {
 }
 async function connectRoom(host) {
   if(!rom || room)return;
-  if(!window.isSecureContext){$('net-status').textContent='Online co-op needs HTTPS or localhost.';return;}
   if(running)stopLocal();
   let session;
-  session=new Room({fingerprint:EXPECTED,preferRelay:$('net-transport').value==='relay',
+  let players=Number($('player-count').value);
+  if(!host){try{players=Number(new URLSearchParams(new URL($('invite').value.trim()).hash.slice(1)).get('players')||2);}catch{}}
+  if(![2,3,4].includes(players)){$('net-status').textContent='Invalid invitation player count';return;}
+  $('player-count').value=String(players);
+  const RoomType=players>2?PartyRoom:Room;
+  session=new RoomType({players,fingerprint:players>2?`${EXPECTED}:squad-v1:${players}`:EXPECTED,preferRelay:!window.isSecureContext || $('net-transport').value==='relay',
     onDiagnostic:message=>{if(room===session){const lines=$('net-diagnostics').textContent.split('\n');lines.push(message);$('net-diagnostics').textContent=lines.slice(-40).join('\n');}},
     onStatus:(message,link)=>{if(room!==session)return;$('net-status').textContent=message;if(link){$('invite').value=link;$('copy-invite').disabled=false;}updateRoomButtons();},
     onStart:()=>{if(room!==session)return;try{initializeNetwork();raf=requestAnimationFrame(tick);networkTimer=setInterval(()=>{if(document.hidden&&running&&room?.started)tick(performance.now(),true);},16);}catch(error){session.fail(error);}},
     onInput:(packet,player)=>{if(room===session)netgame?.input(packet,player);},
     onCommand:(packet,request)=>{if(room===session)netgame?.command(packet,request);},
-    onHash:packet=>{if(room===session)netgame?.hash(packet);},
+    onHash:(packet,player)=>{if(room===session)netgame?.hash(packet,player);},
     onClose:message=>{if(room===session)endRoom(message);},
     onLatency:ms=>{if(room===session)$('net-status').textContent=`Player ${session.player} • ${session.relay?'server relay':'WebRTC'} • ${ms} ms round-trip`},
   });
@@ -265,14 +306,14 @@ $('leave-room').addEventListener('click',()=>endRoom());
 $('ready-room').addEventListener('click',async()=>{
   const session=room;
   if(!session?.connected)return;
-  try{await ensureAudio();if(room===session){session.markReady();updateRoomButtons();if(!session.started)$('net-status').textContent='Ready. Waiting for your partner…';}}
+  try{try{await ensureAudio();}catch(error){console.warn('Audio unavailable; continuing silently',error);node=null;}if(room===session){session.markReady();updateRoomButtons();if(!session.started)$('net-status').textContent='Ready. Waiting for the other players…';}}
   catch(error){$('net-status').textContent=`Audio could not start: ${error.message}`;}
 });
 $('copy-invite').addEventListener('click',async()=>{
   try{await navigator.clipboard.writeText($('invite').value);$('net-status').textContent='Invitation copied.';}
   catch{$('net-status').textContent='Select and copy the invitation link above.';}
 });
-if(location.hash.includes('room=')){$('invite').value=location.href;$('net-status').textContent='Invitation received. Load your ROM, then click Join invitation.';}
+if(location.hash.includes('room=')){const count=new URLSearchParams(location.hash.slice(1)).get('players');if(['2','3','4'].includes(count))$('player-count').value=count;$('invite').value=location.href;$('net-status').textContent='Invitation received. Load your ROM, then click Join invitation.';}
 
 try {
   const embedded=$('cartridge');

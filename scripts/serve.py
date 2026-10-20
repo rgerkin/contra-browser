@@ -70,7 +70,7 @@ class Handler(SimpleHTTPRequestHandler):
             if path == '/api/config' and self.command == 'GET':
                 return self.respond({'iceServers':self.server.ice_servers})
             if path == '/api/rooms' and self.command == 'POST':
-                return self.respond(self.server.rooms.create(),201)
+                return self.respond(self.server.rooms.create(body.get('players',2)),201)
             parts=path.strip('/').split('/')
             if len(parts) not in (3,4) or parts[:2]!=['api','rooms']:
                 raise RoomError(404,'API route not found.')
@@ -113,17 +113,23 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_error(405)
 
     def do_GET(self):
+        if urlsplit(self.path).path.startswith('/game/') and not getattr(self.server,'share_game',False):
+            self.send_error(404)
+            return
         if self.path.startswith('/api/'):
             return self.api()
         path = Path(self.translate_path(self.path)).resolve()
-        if not path.is_relative_to(WEB) or path.is_dir() and urlsplit(self.path).path != '/':
+        if (path.is_relative_to(WEB / 'game') and not getattr(self.server,'share_game',False)) or not path.is_relative_to(WEB) or path.is_dir() and urlsplit(self.path).path != '/':
             self.send_error(403)
             return
         super().do_GET()
 
     def do_HEAD(self):
+        if urlsplit(self.path).path.startswith('/game/') and not getattr(self.server,'share_game',False):
+            self.send_error(404)
+            return
         path=Path(self.translate_path(self.path)).resolve()
-        if not path.is_relative_to(WEB) or path.is_dir() and urlsplit(self.path).path != '/':
+        if (path.is_relative_to(WEB / 'game') and not getattr(self.server,'share_game',False)) or not path.is_relative_to(WEB) or path.is_dir() and urlsplit(self.path).path != '/':
             self.send_error(403)
             return
         super().do_HEAD()
@@ -132,21 +138,31 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port',type=int,default=8787)
     parser.add_argument('--host',default='127.0.0.1')
+    parser.add_argument('--lan-address',help='Exact private LAN IP to bind and allow, e.g. 192.168.1.20')
     parser.add_argument('--public-origin',help='Exact HTTPS origin of your reverse proxy, e.g. https://play.example.org')
     args=parser.parse_args()
     if args.public_origin and (urlsplit(args.public_origin).scheme!='https' or urlsplit(args.public_origin).path not in ('','/')):
         parser.error('--public-origin must be an HTTPS origin without a path')
+    if args.lan_address:
+        import ipaddress
+        try: address=ipaddress.ip_address(args.lan_address)
+        except ValueError: parser.error('--lan-address must be an IP address')
+        if address.version!=4 or not any(address in ipaddress.ip_network(net) for net in ('10.0.0.0/8','172.16.0.0/12','192.168.0.0/16')):
+            parser.error('--lan-address must be a private IPv4 interface address')
+        args.host=args.lan_address
     server=ThreadingHTTPServer((args.host,args.port),partial(Handler,directory=str(WEB)))
     server.daemon_threads=True
+    server.share_game=not args.public_origin and args.host in ('127.0.0.1','localhost','::1')
     server.rooms=Rooms()
     server.public_origin=args.public_origin.rstrip('/') if args.public_origin else None
     server.allowed_hosts={f'127.0.0.1:{args.port}',f'localhost:{args.port}'}
+    if args.lan_address:server.allowed_hosts.add(f'{args.lan_address}:{args.port}')
     if server.public_origin:server.allowed_hosts.add(urlsplit(server.public_origin).netloc)
     server.creators={};server.rate_lock=threading.Lock()
     try:
         server.ice_servers=json.loads(os.environ.get('CONTRA_ICE_SERVERS','[{"urls":"stun:stun.l.google.com:19302"}]'))
         if not isinstance(server.ice_servers,list):raise ValueError('Expected a list')
     except ValueError as exc:parser.error(f'Invalid CONTRA_ICE_SERVERS JSON: {exc}')
-    print(f'Contra player: http://127.0.0.1:{args.port}',flush=True)
+    print(f'Contra player: http://{args.lan_address or "127.0.0.1"}:{args.port}',flush=True)
     try:server.serve_forever()
     except KeyboardInterrupt:server.server_close()
