@@ -15,6 +15,7 @@ WEB = Path(__file__).resolve().parents[1] / 'web'
 CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 class Handler(SimpleHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
     def end_headers(self):
         self.send_header('Content-Security-Policy', CSP)
         self.send_header('X-Content-Type-Options', 'nosniff')
@@ -71,15 +72,35 @@ class Handler(SimpleHTTPRequestHandler):
             if path == '/api/rooms' and self.command == 'POST':
                 return self.respond(self.server.rooms.create(),201)
             parts=path.strip('/').split('/')
-            if len(parts)!=3 or parts[:2]!=['api','rooms']:
+            if len(parts) not in (3,4) or parts[:2]!=['api','rooms']:
                 raise RoomError(404,'API route not found.')
             room=parts[2]
-            if self.command == 'POST' and 'invite' in body:
-                return self.respond(self.server.rooms.join(room,body['invite']))
             token=self.headers.get('Authorization','').removeprefix('Bearer ')
+            if len(parts)==4:
+                if parts[3]=='events' and self.command=='GET':
+                    self.server.rooms.open_stream(room,token)
+                    try:
+                        self.send_response(200)
+                        self.send_header('Content-Type','application/x-ndjson')
+                        self.send_header('Transfer-Encoding','chunked')
+                        self.send_header('X-Accel-Buffering','no')
+                        self.end_headers()
+                        def chunk(data):
+                            raw=(json.dumps(data)+'\n').encode()
+                            self.wfile.write(f'{len(raw):x}\r\n'.encode()+raw+b'\r\n');self.wfile.flush()
+                        chunk([])
+                        while True:chunk(self.server.rooms.read(room,token))
+                    except (OSError,RoomError):self.close_connection=True
+                    finally:self.server.rooms.close_stream(room,token)
+                    return
+                raise RoomError(404,'API route not found.')
+            if self.command=='POST' and 'invite' in body:
+                return self.respond(self.server.rooms.join(room,body['invite']))
             if self.command not in ('GET','POST'):raise RoomError(405,'Method not allowed.')
-            if self.command == 'POST' and 'description' not in body:
-                raise RoomError(400,'Session description missing.')
+            if self.command=='POST':
+                if body.get('transport')=='relay':return self.respond(self.server.rooms.enable_relay(room,token))
+                if 'messages' in body:return self.respond(self.server.rooms.send(room,token,body['messages']))
+                if 'description' not in body:raise RoomError(400,'Session description missing.')
             return self.respond(self.server.rooms.access(room,token,body.get('description')))
         except RoomError as exc:
             self.respond({'error':exc.message},exc.status)

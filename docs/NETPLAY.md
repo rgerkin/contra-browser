@@ -1,13 +1,14 @@
 # Network play expansion
 
-The published `main` baseline remains the original local one/two-player game. This development branch adds experimental two-player room signaling, WebRTC transport, and browser integration. It has not yet been verified across two real internet connections. Four simultaneous game characters remain a separate engine milestone.
+The published `main` baseline remains the original local one/two-player game. This development branch adds experimental two-player room signaling, WebRTC transport, a streaming HTTP relay fallback, and browser integration. It has not yet been verified across two real internet connections. Four simultaneous game characters remain a separate engine milestone.
 
 ## Implemented
 
 - `frame-sync.mjs` schedules controller masks four frames ahead in room mode (about 67 ms at 60 FPS), waits for all inputs, accepts reordered/duplicate input packets, bounds the queue, and rejects slot spoofing and conflicting input.
 - `game-session.mjs` owns simulation time, starts an actual two-player game deterministically, coordinates host-authorized pause/resume/reset at future frame boundaries, and compares full-state SHA-256 checksums every 120 frames. New-epoch messages arriving during a reset are buffered. Rendering/audio do not advance game time themselves.
+- `relay.mjs` adapts the same protocol to authenticated same-origin HTTP/1.1: bounded POST batches send input, while a chunked receive stream delivers ordered messages from the assigned partner. It works through ordinary HTTPS, so TURN is optional. Direct-mode ICE failure before gameplay requests a coordinated switch to this relay; switching transports during an active mission ends the room and requires a fresh session.
 - `room.mjs` exchanges WebRTC offers/answers through same-origin HTTP signaling and establishes a reliable ordered encrypted data channel. The handshake checks game fingerprint, protocol/emulator identity, assigned role, and buffer delay. Both users click Ready before starting. It includes latency pings, bounded messages, congestion checks, and disconnect handling.
-- `scripts/rooms.py` and `serve.py` provide bounded, expiring, in-memory room metadata with independent host/guest credentials and single-claim invitations. The API limits body/SDP sizes and room creation, checks Host/Origin, and omits request/credential details from logs. It never accepts ROMs or game state. It is a reference/development server, not a production deployment platform.
+- `scripts/rooms.py` and `serve.py` provide bounded, expiring, in-memory room metadata with independent host/guest credentials and single-claim invitations. The API limits body/SDP sizes and room creation, checks Host/Origin, and omits request/credential details from logs. The app never uploads ROMs or full game states. Relay queues are bounded, messages are delivered only to the other authenticated slot, and each player can open one receive stream. It is a reference/development server, not a production deployment platform.
 - The browser keeps local mode available. In network mode, each player's primary keyboard/gamepad controls only their assigned slot; the stock engine provides two independent characters. The standalone HTML remains local-only and hides room controls.
 
 ## Tests
@@ -18,10 +19,16 @@ The published `main` baseline remains the original local one/two-player game. Th
 
 Browser-to-browser tests and cross-network connectivity are tracked separately from these simulations. Successful deterministic simulation alone does not establish that a user's routers will support a direct WebRTC connection.
 
+## Live browser verification
+
+On 2026-10-19, two Chrome tabs on the same computer established a server-relay room, started two-player gameplay, and reported matching game-state checksums through at least frame 3,360 after reset. Host pause, guest pause/resume, reset during play, and reset while paused were exercised. Steady playback was about 60 FPS. A second pair successfully used direct WebRTC and matched checksums through frame 1,200; leaving restored local play on both sides. Initial direct ICE attempts had failed, which motivated the relay fallback. The adapter test also exercises automatic migration after a simulated ICE failure.
+
+This verifies the two transport paths locally, not across two separate internet connections. Screenshots and ROM-containing outputs remain local and ignored by Git.
+
 ## Remaining work and limits
 
-- Complete live browser-pair verification, then test two actual internet connections with both direct and TURN-relayed transport.
-- There is no public hosted signaling or TURN service. Internet operators must provide a reachable HTTPS origin, relay credentials, and appropriate production request/concurrency controls. No deployment has been made.
+- Test two actual internet connections with both direct and same-server relayed transport; optional TURN can be tested separately.
+- There is no public hosted signaling/relay service. Internet operators must provide a reachable HTTPS origin, appropriate production request/concurrency controls, streaming support, and sufficient relay bandwidth. TURN credentials are optional. No deployment has been made.
 - This is buffered lockstep; there is no rollback. Slow or background-throttled peers can stall both players. There is no seamless reconnect; create a new room after a disconnect or state mismatch.
 - Checksums detect state divergence and terminate the room. Automatic host-snapshot recovery is not implemented. The measured JSON state is about 1.37 MB, so recovery would require a bounded/chunked transfer while paused, not a per-frame full-state broadcast.
 - The coordinator can represent four input slots as groundwork. Applying four slots to the stock two-port engine fails explicitly; this is not four-player gameplay.

@@ -196,7 +196,7 @@ function updateRoomButtons() {
   $('join-room').disabled=!rom || !!room;
   $('leave-room').disabled=!room;
   $('ready-room').disabled=!room?.connected || room.ready;
-  $('rom').disabled=!!room;
+  $('rom').disabled=!!room;$('net-transport').disabled=!!room;
   if(room && !room.started){$('play').disabled=true;$('pause').disabled=true;$('reset').disabled=true;}
 }
 function initializeNetwork() {
@@ -229,23 +229,25 @@ function endRoom(message='Left room. Local play is available.') {
   $('overlay').hidden=false;$('overlay-title').textContent='Ready for your next mission.';
   $('message').textContent=message;$('net-status').textContent=message;$('play').textContent='PLAY CONTRA ↗';
   $('play').disabled=!rom;$('pause').disabled=!rom;$('reset').disabled=!rom;
-  $('pause').textContent='Pause';$('copy-invite').disabled=true;showState('LOCAL PLAY');updateRoomButtons();
+  $('pause').textContent='Pause';$('copy-invite').disabled=true;$('net-detail').textContent='Each player supplies their own ROM.';
+  delete $('screen').dataset.netFrame;delete $('screen').dataset.netHash;showState('LOCAL PLAY');updateRoomButtons();
 }
 async function connectRoom(host) {
   if(!rom || room)return;
-  if(!window.RTCPeerConnection || !window.isSecureContext){$('net-status').textContent='Online co-op needs HTTPS or localhost and a browser with WebRTC.';return;}
+  if(!window.isSecureContext){$('net-status').textContent='Online co-op needs HTTPS or localhost.';return;}
   if(running)stopLocal();
   let session;
-  session=new Room({fingerprint:EXPECTED,
+  session=new Room({fingerprint:EXPECTED,preferRelay:$('net-transport').value==='relay',
+    onDiagnostic:message=>{if(room===session){const lines=$('net-diagnostics').textContent.split('\n');lines.push(message);$('net-diagnostics').textContent=lines.slice(-40).join('\n');}},
     onStatus:(message,link)=>{if(room!==session)return;$('net-status').textContent=message;if(link){$('invite').value=link;$('copy-invite').disabled=false;}updateRoomButtons();},
     onStart:()=>{if(room!==session)return;try{initializeNetwork();raf=requestAnimationFrame(tick);networkTimer=setInterval(()=>{if(document.hidden&&running&&room?.started)tick(performance.now(),true);},16);}catch(error){session.fail(error);}},
     onInput:(packet,player)=>{if(room===session)netgame?.input(packet,player);},
     onCommand:(packet,request)=>{if(room===session)netgame?.command(packet,request);},
     onHash:packet=>{if(room===session)netgame?.hash(packet);},
     onClose:message=>{if(room===session)endRoom(message);},
-    onLatency:ms=>{if(room===session)$('net-status').textContent=`Player ${session.player} connected • ${ms} ms round-trip`},
+    onLatency:ms=>{if(room===session)$('net-status').textContent=`Player ${session.player} • ${session.relay?'server relay':'WebRTC'} • ${ms} ms round-trip`},
   });
-  room=session;updateRoomButtons();$('net-status').textContent='Connecting…';
+  room=session;$('net-diagnostics').textContent='';updateRoomButtons();$('net-status').textContent='Connecting…';
   try {
     if(host)await session.host();
     else {

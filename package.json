@@ -9,7 +9,7 @@
     "package": "python3 scripts/verify.py && python3 scripts/package.py",
     "test": "node scripts/check-game.mjs",
     "test:netplay": "node scripts/check-netplay.mjs",
-    "test:rooms": "python3 scripts/check-rooms.py && node scripts/check-room-client.mjs",
+    "test:rooms": "python3 scripts/check-rooms.py && node scripts/check-room-client.mjs && node scripts/check-relay.mjs",
     "test:session": "node scripts/check-game-session.mjs"
   },
   "license": "MIT",

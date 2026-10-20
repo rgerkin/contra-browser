@@ -45,6 +45,30 @@ class StoreTests(unittest.TestCase):
         with self.assertRaises(RoomError):self.store.join(self.host['room'],'wrong')
         with self.assertRaises(RoomError):self.store.access(self.host['room'],self.host['token'],{'type':'offer','sdp':'x'*60001})
 
+class RelayTests(unittest.TestCase):
+    def setUp(self):
+        self.store=Rooms();self.host=self.store.create()
+        self.guest=self.store.join(self.host['room'],self.host['invite'])
+        self.store.enable_relay(self.host['room'],self.host['token'])
+    def test_only_partner_receives_messages_with_trusted_sender(self):
+        self.store.send(self.host['room'],self.host['token'],['hello','input'])
+        self.assertEqual(self.store.read(self.host['room'],self.host['token'],timeout=0),[])
+        events=self.store.read(self.host['room'],self.guest['token'],timeout=0)
+        self.assertEqual(events,[{'from':1,'data':'hello'},{'from':1,'data':'input'}])
+        self.assertEqual(self.store.read(self.host['room'],self.guest['token'],timeout=0),[])
+    def test_relay_uses_room_credentials(self):
+        with self.assertRaises(RoomError):self.store.send(self.host['room'],'wrong',['input'])
+        with self.assertRaises(RoomError):self.store.read(self.host['room'],'wrong',timeout=0)
+    def test_queue_and_message_size_bounds(self):
+        with self.assertRaises(RoomError):self.store.send(self.host['room'],self.host['token'],['x'*4097])
+        for _ in range(16):self.store.send(self.host['room'],self.host['token'],['input']*16)
+        with self.assertRaises(RoomError):self.store.send(self.host['room'],self.host['token'],['overflow'])
+    def test_one_stream_per_player_and_clean_close(self):
+        self.store.open_stream(self.host['room'],self.host['token'])
+        with self.assertRaises(RoomError):self.store.open_stream(self.host['room'],self.host['token'])
+        self.store.close_stream(self.host['room'],self.host['token'])
+        self.store.open_stream(self.host['room'],self.host['token'])
+
 class MemoryHandler(Handler):
     def respond(self,value,status=200):self.result=(status,value)
 
