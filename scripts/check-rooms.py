@@ -17,6 +17,25 @@ class PrivateAssetTests(unittest.TestCase):
                 h.server=SimpleNamespace(share_game=False)
                 getattr(h,method)();self.assertIn(h.code,(403,404))
 
+    def test_opted_in_cartridge_download_and_head(self):
+        class CaptureHandler(Handler):
+            def send_response(self,code):self.code=code
+            def send_header(self,name,value):self.captured[name]=value
+            def end_headers(self):pass
+        assets={'/game/contra.nes':('application/octet-stream',b'local cartridge fixture'),
+                '/game/manifest.json':('application/json',b'{"rebuilt":false}')}
+        for method in ('GET','HEAD'):
+            for path,(content_type,data) in assets.items():
+                h=object.__new__(CaptureHandler);h.path=path+'?v=1';h.command=method
+                h.server=SimpleNamespace(shared_cartridge=assets,share_game=False)
+                h.captured={};h.wfile=io.BytesIO()
+                getattr(h,'do_'+method)()
+                self.assertEqual(h.code,200)
+                self.assertEqual(h.captured['Content-Type'],content_type)
+                self.assertEqual(h.captured['Content-Length'],str(len(data)))
+                self.assertEqual(h.wfile.getvalue(),data if method=='GET' else b'')
+        h.path='/game/other.nes';self.assertFalse(h.serve_shared_cartridge())
+
 class StoreTests(unittest.TestCase):
     def setUp(self):
         self.now=0

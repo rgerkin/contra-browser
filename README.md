@@ -6,14 +6,14 @@ A browser player for a **user-supplied Contra (US) NES ROM**, with keyboard, tou
 
 ## What to download and install
 
-To play an existing ROM, you need:
+To host or load an existing ROM, you need:
 
 | Item | Where to get it / what it is for |
 | --- | --- |
 | A current browser | Chrome, Edge, or Firefox. Chrome was used for testing. No browser extension or separate NES emulator is required. |
 | Python | Install a supported Python 3 release from [python.org](https://www.python.org/downloads/); Python 3.11+ is recommended. The server uses only Python's standard library (technical minimum: 3.9). On Windows, enable the installer option to add Python to PATH if offered, or use the `py` launcher. |
 | This repository | Clone it with [Git](https://git-scm.com/downloads/), or use GitHub's **Code → Download ZIP** and extract it. Git is optional when using the ZIP. |
-| Your own Contra (US) ROM | An original **131,088-byte `.nes` file**, including its original iNES header, that you are authorized to use. Other regions, ROM hacks, ZIP archives, or files with altered headers will fail verification. No ROM or ROM-download service is provided here. |
+| Your own Contra (US) ROM | An original **131,088-byte `.nes` file**, including its original iNES header, that you are authorized to use. Other regions, ROM hacks, ZIP archives, or files with altered headers will fail verification. No ROM is included here. A LAN host can optionally serve their locally supplied ROM to visiting browsers with `--share-rom`. |
 
 [Node.js/npm](https://nodejs.org/en/download) is **optional for normal play**. Install a current LTS release if you want the `npm` shortcuts or the headless gameplay test; Node.js 22+ is recommended. The Node.js installer includes npm. JSNES is already bundled, so **do not run `npm install` or `pip install` for this version**: there are no package dependencies to install.
 
@@ -68,13 +68,26 @@ Restart the server after updating this branch. Find the server computer’s priv
 python3 scripts/serve.py --port 8788 --lan-address 192.168.1.20
 ```
 
-This binds only to that interface and allows that exact address in the room API. On **both devices**, open `http://192.168.1.20:8788` and load a ROM independently. Select **Server relay** for a two-player test; squads always use the relay. Create the room from that address so the invitation contains the LAN IP. Allow Python on your private network if the OS firewall asks. The other device needs only a browser and its own ROM, not Python or Node.js. LAN/public hosting blocks the private `web/game/` rebuild outputs; each device must choose its own ROM file, even if the server has a local rebuild. No port forwarding is needed within the subnet. HTTP LAN mode has a local hash implementation and an audio fallback, so browser security flags and certificate installation are unnecessary. Use this mode on a trusted private network; HTTP does not encrypt room traffic. Use HTTPS for internet hosting.
+This binds only to that interface and allows that exact address in the room API. On **both devices**, open `http://192.168.1.20:8788`. By default, each browser loads a ROM independently. Select **Server relay** for a two-player test; squads always use the relay. Create the room from that address so the invitation contains the LAN IP. Allow Python on your private network if the OS firewall asks. The other device needs only a browser and its own ROM, not Python or Node.js. LAN/public hosting blocks private rebuild outputs by default. The explicit LAN sharing option below lets visitors load the host’s verified ROM automatically. No port forwarding is needed within the subnet. HTTP LAN mode has a local hash implementation and an audio fallback, so browser security flags and certificate installation are unnecessary. Use this mode on a trusted private network; HTTP does not encrypt room traffic. Use HTTPS for internet hosting.
+
+### Let LAN visitors load the host’s ROM automatically
+
+Start with `--share-rom` and the path to your local original cartridge:
+
+```sh
+python3 scripts/serve.py --port 8788 --lan-address 192.168.1.20 \
+  --share-rom "$HOME/Downloads/Contra (USA).nes"
+```
+
+Replace the IP with this computer’s private LAN IPv4 address. Everyone visits that address; the page downloads the verified ROM from this server, verifies it again in the browser, and enables play/room controls without a file picker. Guests need only a browser. Each browser still emulates the game locally; multiplayer inputs are synchronized as before.
+
+The server verifies the exact original US ROM before starting and serves only the cartridge and its generated manifest at two fixed game URLs. The original file stays where it is; it is not copied into the public repository. If you already have `web/game/contra.nes` locally, `--share-rom` without a path uses that file. Sharing requires `--lan-address` and cannot be combined with `--public-origin`. Any device able to reach that LAN server can download the ROM; room invitations do not restrict that download. ROMs and ROM-containing HTML remain ignored by Git.
 
 ## Experimental online co-op
 
-1. All players open the app at the **same server address** and load their own original US ROM.
+1. All players open the app at the **same server address**. Load a local original US ROM, or let the page load the host’s ROM when LAN sharing is enabled.
 2. Player 1 clicks **Create room**, then **Copy invitation** and sends the link to the other participants.
-3. Each invited player opens that link, loads their ROM, and clicks **Join invitation**.
+3. Each invited player opens that link, waits for cartridge verification (or loads a local ROM), and clicks **Join invitation**.
 4. Once everyone connects, all click **Ready**. The app starts a fresh game at stage 1 with the selected player count. Everyone uses arrows/Z/X (or their first connected gamepad) for their assigned character.
 
 The room panel shows round-trip latency and the selected transport; below it, periodic matching game-state checksums confirm synchronization. Pause/resume and reset are scheduled at matching simulation frames. Leaving/disconnecting ends the network session and returns to local play. A checksum mismatch stops the session; create a new room to restart. Seamless reconnect and rollback are not implemented.
@@ -92,7 +105,7 @@ CONTRA_ICE_SERVERS='[{"urls":"stun:relay.example:3478"},{"urls":"turns:relay.exa
 
 Relay credentials are supplied to participating browsers; use limited-lifetime credentials and do not commit secrets. The reverse proxy must forward the `Host`, `Origin`, and `Authorization` headers and must not cache `/api/` responses. Disable response buffering for `/api/rooms/*/events`, which streams relay messages. The reference server uses HTTP/1.1, persistent POST connections, and a chunked receive stream; it is intended for small trusted tests, not unrestricted public traffic. To avoid contacting a public STUN service for local testing, set `CONTRA_ICE_SERVERS='[]'` before starting the server. Connection setup times out after three minutes; invitations admit the selected number of guests and room records expire after 30 minutes without signaling activity.
 
-Game simulation and rendering run in each browser. The server handles temporary room credentials and connection descriptions. In direct mode, controller inputs and state checksums travel over the encrypted WebRTC channel; in server-relay mode, the same small messages pass through the app server over HTTPS. The server operator can see relayed inputs/checksums, so use a server you trust. No ROM is sent to the server or the other player. Both direct WebRTC and same-server relay were verified between two local Chrome tabs at about 60 FPS, with matching state checksums and coordinated pause/reset. Two separate internet connections have not yet been tested. See [the network implementation notes](docs/NETPLAY.md) for test coverage and remaining work.
+Game simulation and rendering run in each browser. The server handles temporary room credentials and connection descriptions. In direct mode, controller inputs and state checksums travel over the encrypted WebRTC channel; in server-relay mode, the same small messages pass through the app server over HTTPS. The server operator can see relayed inputs/checksums, so use a server you trust. Locally selected ROM files are never uploaded. With `--share-rom`, the LAN server deliberately sends its verified cartridge to each visiting browser; multiplayer messages still contain no ROM data. Both direct WebRTC and same-server relay were verified between two local Chrome tabs at about 60 FPS, with matching state checksums and coordinated pause/reset. Two separate internet connections have not yet been tested. See [the network implementation notes](docs/NETPLAY.md) for test coverage and remaining work.
 
 ## Optional: reassemble from separately obtained source
 

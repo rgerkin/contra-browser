@@ -266,7 +266,7 @@ function endRoom(message='Left room. Local play is available.') {
   $('overlay').hidden=false;$('overlay-title').textContent='Ready for your next mission.';
   $('message').textContent=message;$('net-status').textContent=message;$('play').textContent='PLAY CONTRA ↗';
   $('play').disabled=!rom;$('pause').disabled=!rom;$('reset').disabled=!rom;
-  $('pause').textContent='Pause';$('copy-invite').disabled=true;$('net-detail').textContent='Each player supplies their own ROM.';
+  $('pause').textContent='Pause';$('copy-invite').disabled=true;$('net-detail').textContent='Every browser verifies the same US cartridge.';
   delete $('screen').dataset.netFrame;delete $('screen').dataset.netHash;showState('LOCAL PLAY');updateRoomButtons();
 }
 async function connectRoom(host) {
@@ -327,6 +327,7 @@ try {
   if(manifest.sha512!==EXPECTED || manifest.byteIdentical!==true) throw new Error('Build manifest verification failed. Rebuild the cartridge.');
   const cartridge=await fetch('./game/contra.nes');
   if(!cartridge.ok) throw new Error('Rebuilt cartridge missing. Run the local build.');
-  await load(await cartridge.arrayBuffer(),true);
+  await load(await cartridge.arrayBuffer(),manifest.rebuilt!==false);
+  if(manifest.rebuilt===false){$('net-detail').textContent='Verified cartridge loaded from this LAN server.';$('net-status').textContent=location.hash.includes('room=')?'Server cartridge verified. Click Join invitation.':'Server cartridge verified. Create a room or join an invitation.';}
   }
 } catch(err) { $('message').textContent=err.message; $('provenance').textContent='Awaiting cartridge'; showState('AWAITING CARTRIDGE'); }
