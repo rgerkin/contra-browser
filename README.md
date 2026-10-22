@@ -56,7 +56,7 @@ Choose **3-player squad** or **4-player squad** in the Players selector, then Pl
 | P3 · green | IJKL | N | M |
 | P4 · gold | Numpad 8/4/5/6 | Numpad 0 | Numpad decimal |
 
-Up to four standard gamepads can also control a local squad. Online, each browser controls **one assigned character** with arrows/Z/X or its first gamepad. A four-player network room requires four clients; two browsers can each open two tabs for a test, though background-tab throttling may cause stalls. The room starts when every participant joins and clicks Ready. Three-/four-player rooms use the server relay.
+Up to four standard gamepads can also control a local squad. Online, each browser controls **one assigned character** with arrows/Z/X or its first gamepad. A four-player network room requires four clients; two browsers can each open two tabs for a test, though background-tab throttling may cause stalls. The room starts when every participant joins and clicks Ready. With the Python server, three-/four-player rooms use the server relay. The experimental Cloudflare mode uses direct WebRTC for all player counts.
 
 **Experimental limits:** this is an emulator extension, not a patched four-controller NES cartridge. It invokes movement and collision routines from your verified ROM with extra player contexts, then renders their cartridge-derived sprites with green/gold clothing. The ROM remains unchanged and is never uploaded. The extra characters share the original bullet pool; heavy simultaneous fire can limit shots. Some score attribution, enemy targeting, life-transfer, and stage-transition decisions retain the cartridge’s two-player assumptions. The original HUD still has two medal/score areas; use the added status strip for extra lives. All eight stages and continues have not been validated. Use browser Reset to restart a squad after game over.
 
@@ -106,6 +106,16 @@ CONTRA_ICE_SERVERS='[{"urls":"stun:relay.example:3478"},{"urls":"turns:relay.exa
 Relay credentials are supplied to participating browsers; use limited-lifetime credentials and do not commit secrets. The reverse proxy must forward the `Host`, `Origin`, and `Authorization` headers and must not cache `/api/` responses. Disable response buffering for `/api/rooms/*/events`, which streams relay messages. The reference server uses HTTP/1.1, persistent POST connections, and a chunked receive stream; it is intended for small trusted tests, not unrestricted public traffic. To avoid contacting a public STUN service for local testing, set `CONTRA_ICE_SERVERS='[]'` before starting the server. Connection setup times out after three minutes; invitations admit the selected number of guests and room records expire after 30 minutes without signaling activity.
 
 Game simulation and rendering run in each browser. The server handles temporary room credentials and connection descriptions. In direct mode, controller inputs and state checksums travel over the encrypted WebRTC channel; in server-relay mode, the same small messages pass through the app server over HTTPS. The server operator can see relayed inputs/checksums, so use a server you trust. Locally selected ROM files are never uploaded. With `--share-rom`, the LAN server deliberately sends its verified cartridge to each visiting browser; multiplayer messages still contain no ROM data. Both direct WebRTC and same-server relay were verified between two local Chrome tabs at about 60 FPS, with matching state checksums and coordinated pause/reset. Two separate internet connections have not yet been tested. See [the network implementation notes](docs/NETPLAY.md) for test coverage and remaining work.
+
+## Private Cloudflare hosting (experimental)
+
+The [Cloudflare deployment guide](docs/CLOUDFLARE.md) describes the password-protected
+Worker and direct two-/three-/four-player mode. Guests need only a browser, the shared
+password, and an invitation. The host selects their original ROM; it transfers directly
+to the other browsers and each receiver verifies it. Cloudflare receives the browser
+code and temporary connection descriptions, not the ROM or gameplay traffic. There is
+no cloud gameplay fallback; direct connectivity is required. Deployment and actual
+multi-device testing are still pending.
 
 ## Optional: reassemble from separately obtained source
 

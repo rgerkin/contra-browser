@@ -57,3 +57,17 @@ Local browser verification now covers both direct WebRTC and server-relay gamepl
 The experimental squad extension contains original emulator integration and address metadata. Cartridge routines and sprites are obtained only from a locally verified ROM. Calls have bounded instruction/stack budgets and preserve the interrupted CPU context. It is experimental gameplay code, not a security boundary for arbitrary ROMs. The app still accepts only the pinned cartridge. LAN HTTP is opt-in through `--lan-address`, restricted to an exact RFC 1918 interface/Host; room credentials and inputs are unencrypted on HTTP. Use a trusted subnet or HTTPS. The pure JavaScript SHA-2 fallback is checked against Node’s implementation across padding boundaries and full cartridge-size input.
 
 LAN/public server configurations block private `web/game/` outputs by default (including encoded-path variants). Loopback development mode can serve the locally rebuilt cartridge automatically. Explicit `--share-rom [PATH]` requires `--lan-address` and rejects `--public-origin`: it validates the exact pinned ROM before startup and exposes only `/game/contra.nes` and `/game/manifest.json`. Every reachable LAN visitor can download the shared ROM without a room invitation. No input file is copied or committed; public Git content still excludes ROMs and ROM-containing HTML.
+
+## Experimental Cloudflare mode — 2026-10-20
+
+The prepared Worker uses a shared password with per-IP attempt limits and signed,
+eight-hour Secure/HttpOnly/SameSite cookies. Secrets live in deployment bindings;
+local credentials are ignored by Git and readable only by the owner. Assets are
+explicitly allowlisted and contain no ROM. Room credentials are hashed in persistent
+SQLite Durable Objects; connection descriptions expire after inactivity. This mode
+uses direct WebRTC for two to four players, without STUN, TURN, or a cloud gameplay
+relay. The host directly transfers the verified cartridge to guests. Existing
+statements about local-only ROM loading and in-memory rooms above describe the
+Python mode, not this opt-in deployment. The Worker code is deployed but missing its storage/secret bindings and fails closed.
+Actual live-site and multi-device route verification have not been completed. Shared-password access grants
+access to anyone holding that password; invitations separately control room slots.

@@ -11,6 +11,7 @@
     "test:netplay": "node scripts/check-netplay.mjs",
     "test:rooms": "python3 scripts/check-rooms.py && node scripts/check-room-client.mjs && node scripts/check-relay.mjs && node scripts/check-party-room.mjs",
     "test:session": "node scripts/check-game-session.mjs",
+    "test:cloudflare": "node scripts/check-cloudflare.mjs && node scripts/check-direct-room.mjs",
     "test:four-player": "node scripts/check-four-player.mjs"
   },
   "license": "MIT",

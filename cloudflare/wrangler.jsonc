@@ -1,0 +1,15 @@
+{
+  "name": "contra-browser-private",
+  "account_id": "15808373063bbad5ad93a575befd7f39",
+  "main": "src/entry.mjs",
+  "compatibility_date": "2026-10-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {"enabled": false},
+  "durable_objects": {"bindings": [
+    {"name":"ROOMS","class_name":"ContraRoom"},
+    {"name":"LOGIN_THROTTLE","class_name":"LoginThrottle"}
+  ]},
+  "migrations": [{"tag":"v1","new_sqlite_classes":["ContraRoom","LoginThrottle"]}]
+}

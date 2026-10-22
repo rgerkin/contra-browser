@@ -1,6 +1,7 @@
 import {FourPlayer} from './gameplay/four-player.mjs';
 import {prepareTwoPlayerGame} from './netplay/game.mjs';
 import {digestHex} from './netplay/digest.mjs';
+import {DirectRoom} from './netplay/direct-room.mjs';
 import {PartyRoom} from './netplay/party-room.mjs';
 import NES from './vendor/jsnes/src/nes.js';
 import {Room} from './netplay/room.mjs';
@@ -27,6 +28,7 @@ const sampleL = new Float32Array(2048), sampleR = new Float32Array(2048);
 const inputs = new Map();
 const taps = new Set();
 let room=null, netgame=null;
+let deployment={directOnly:false};
 let networkTimer=null;
 const nes = new NES({
   sampleRate:48000,
@@ -150,14 +152,14 @@ function tick(now, fromTimer=false) {
   }
   if(!fromTimer)raf=requestAnimationFrame(tick);
 }
-async function load(buffer, rebuilt=false) {
+async function load(buffer, rebuilt=false, peer=false) {
   const bytes=new Uint8Array(buffer);
   if(bytes.length!==131088 || ![0x4e,0x45,0x53,0x1a,8,0,0x21,0,0,0,0,0,0,0,0,0].every((v,i)=>bytes[i]===v))
     throw new Error('Choose the original 131,088-byte Contra (US) iNES ROM.');
   const hash=await digestHex('SHA-512',bytes);
   if(hash!==EXPECTED) throw new Error('ROM hash mismatch. This cartridge is not the expected original Contra (US).');
   if(running) pause();
-  if(room)throw new Error('Leave the room before changing cartridges.');
+  if(room && !(peer && !room.started && room.player!==1))throw new Error('Leave the room before changing cartridges.');
   rom=Array.from(bytes,b=>String.fromCharCode(b)).join('');
   resetLocalGame(); release(); clearAudio();
   $('play').disabled=false; $('pause').disabled=false; $('reset').disabled=false;
@@ -230,10 +232,10 @@ $('player-count').addEventListener('change',()=>{if(!rom||room)return;if(running
 
 function updateRoomButtons() {
   $('host-room').disabled=!rom || !!room;
-  $('join-room').disabled=!rom || !!room;
+  $('join-room').disabled=(!rom && !deployment.directOnly) || !!room;
   $('leave-room').disabled=!room;
-  $('ready-room').disabled=!room?.connected || room.ready;
-  $('rom').disabled=!!room;$('net-transport').disabled=!!room;$('player-count').disabled=!!room;
+  $('ready-room').disabled=!rom || !room?.connected || room.ready;
+  $('rom').disabled=!!room;$('net-transport').disabled=!!room || deployment.directOnly;$('player-count').disabled=!!room;
   if(room && !room.started){$('play').disabled=true;$('pause').disabled=true;$('reset').disabled=true;}
 }
 function initializeNetwork() {
@@ -270,15 +272,17 @@ function endRoom(message='Left room. Local play is available.') {
   delete $('screen').dataset.netFrame;delete $('screen').dataset.netHash;showState('LOCAL PLAY');updateRoomButtons();
 }
 async function connectRoom(host) {
-  if(!rom || room)return;
+  if(room || (!rom && (host || !deployment.directOnly)))return;
   if(running)stopLocal();
   let session;
   let players=Number($('player-count').value);
   if(!host){try{players=Number(new URLSearchParams(new URL($('invite').value.trim()).hash.slice(1)).get('players')||2);}catch{}}
   if(![2,3,4].includes(players)){$('net-status').textContent='Invalid invitation player count';return;}
   $('player-count').value=String(players);
-  const RoomType=players>2?PartyRoom:Room;
+  const RoomType=deployment.directOnly?DirectRoom:players>2?PartyRoom:Room;
   session=new RoomType({players,fingerprint:players>2?`${EXPECTED}:squad-v1:${players}`:EXPECTED,preferRelay:!window.isSecureContext || $('net-transport').value==='relay',
+    getCartridge:()=>rom,
+    onCartridge:async buffer=>{if(room!==session||session.started)throw new Error('Unexpected peer cartridge');await load(buffer,false,true);$('net-detail').textContent='Cartridge received directly from host · SHA-512 verified';updateRoomButtons();},
     onDiagnostic:message=>{if(room===session){const lines=$('net-diagnostics').textContent.split('\n');lines.push(message);$('net-diagnostics').textContent=lines.slice(-40).join('\n');}},
     onStatus:(message,link)=>{if(room!==session)return;$('net-status').textContent=message;if(link){$('invite').value=link;$('copy-invite').disabled=false;}updateRoomButtons();},
     onStart:()=>{if(room!==session)return;try{initializeNetwork();raf=requestAnimationFrame(tick);networkTimer=setInterval(()=>{if(document.hidden&&running&&room?.started)tick(performance.now(),true);},16);}catch(error){session.fail(error);}},
@@ -286,7 +290,7 @@ async function connectRoom(host) {
     onCommand:(packet,request)=>{if(room===session)netgame?.command(packet,request);},
     onHash:(packet,player)=>{if(room===session)netgame?.hash(packet,player);},
     onClose:message=>{if(room===session)endRoom(message);},
-    onLatency:ms=>{if(room===session)$('net-status').textContent=`Player ${session.player} • ${session.relay?'server relay':'WebRTC'} • ${ms} ms round-trip`},
+    onLatency:ms=>{if(room===session)$('net-status').textContent=`Player ${session.player} • ${session.relay?'server relay':'direct WebRTC'} • ${ms} ms round-trip`},
   });
   room=session;$('net-diagnostics').textContent='';updateRoomButtons();$('net-status').textContent='Connecting…';
   try {
@@ -305,7 +309,7 @@ $('join-room').addEventListener('click',()=>connectRoom(false));
 $('leave-room').addEventListener('click',()=>endRoom());
 $('ready-room').addEventListener('click',async()=>{
   const session=room;
-  if(!session?.connected)return;
+  if(!rom || !session?.connected)return;
   try{try{await ensureAudio();}catch(error){console.warn('Audio unavailable; continuing silently',error);node=null;}if(room===session){session.markReady();updateRoomButtons();if(!session.started)$('net-status').textContent='Ready. Waiting for the other players…';}}
   catch(error){$('net-status').textContent=`Audio could not start: ${error.message}`;}
 });
@@ -316,6 +320,10 @@ $('copy-invite').addEventListener('click',async()=>{
 if(location.hash.includes('room=')){const count=new URLSearchParams(location.hash.slice(1)).get('players');if(['2','3','4'].includes(count))$('player-count').value=count;$('invite').value=location.href;$('net-status').textContent='Invitation received. Load your ROM, then click Join invitation.';}
 
 try {
+  try {
+    const config=$('cartridge')?null:await fetch('/api/config');if(config?.ok)deployment=await config.json();
+    if(deployment.directOnly){$('net-transport').innerHTML='<option value="direct">Direct WebRTC · cloud relay disabled</option>';$('net-transport').disabled=true;$('net-status').textContent='Host: load a ROM and create a room. Guests: join the invitation to receive it directly.';updateRoomButtons();}
+  }catch(error){console.warn('Room configuration unavailable',error);}
   const embedded=$('cartridge');
   if(embedded) {
     const bytes=Uint8Array.from(atob(embedded.textContent.trim()),c=>c.charCodeAt(0));
