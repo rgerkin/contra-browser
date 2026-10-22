@@ -114,8 +114,8 @@ Worker and direct two-/three-/four-player mode. Guests need only a browser, the 
 password, and an invitation. The host selects their original ROM; it transfers directly
 to the other browsers and each receiver verifies it. Cloudflare receives the browser
 code and temporary connection descriptions, not the ROM or gameplay traffic. There is
-no cloud gameplay fallback; direct connectivity is required. Deployment and actual
-multi-device testing are still pending.
+no cloud gameplay fallback; direct connectivity is required. The Worker code is deployed; storage/secret setup and actual multi-device testing
+are still pending. See the guide for the completion command.
 
 ## Optional: reassemble from separately obtained source
 
